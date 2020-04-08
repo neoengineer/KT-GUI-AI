@@ -3,21 +3,15 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.7.6
-  - numpy
-  - mesalib # provides an open source implementation of OpenGL needed by binder docker
-  - opencv=4.2.0
-  - pandas
+  - python==3.6
+  - numpy==1.12
+  - scipy==0.19.1
+  - scikit-learn==0.18.1
   - matplotlib
-  - scikit-learn
-  - seaborn
-  - tensorflow
-  - jupyter_contrib_nbextensions
-  - jupyterlab
-  - ipywidgets=7.5.1
-  - widgetsnbextension
-  - nodejs
-  - pip
-  - pip:
-    - jupyterlab-server
-    - nbdime
+  - opencv==3.1
+  - jupyter==1.0
+  - notebook==5.4.1
+  - pandas==0.22
+  - theano
+  - keras==2.1.5
+  - mkl-service==1.1.2

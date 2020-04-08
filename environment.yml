@@ -9,7 +9,6 @@ dependencies:
   - nodejs
   - numpy
   - opencv
-  - mesa # only needed for the binder docker to run
   - pandas
   - python=3.7.6
   - scikit-learn
@@ -20,3 +19,4 @@ dependencies:
   - pip:
     - jupyterlab-server
     - nbdime
+    - libgl1-mesa-glx # only needed for the binder docker to run

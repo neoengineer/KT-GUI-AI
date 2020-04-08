@@ -1,0 +1,20 @@
+name: default
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - ipywidgets=7.5.1
+  - nodejs
+  - numpy
+  - opencv
+  - pandas
+  - python=3.7.6
+  - scikit-learn
+  - seaborn
+  - tensorflow
+  - widgetsnbextension
+  - pip:
+    - jupyterlab
+    - jupyterlab-server
+    - nbdime
+

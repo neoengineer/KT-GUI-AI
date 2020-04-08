@@ -8,7 +8,7 @@ dependencies:
   - ipywidgets=7.5.1
   - nodejs
   - numpy
-  - mesalib
+  - mesalib # provides an open source implementation of OpenGL needed by 
   - opencv=4.2.0
   - pandas
   - python=3.7.6

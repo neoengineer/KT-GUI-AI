@@ -1,21 +1,22 @@
-name: default
+name: python37
 channels:
   - conda-forge
   - defaults
 dependencies:
-  - jupyter_contrib_nbextensions
-  - jupyterlab
-  - ipywidgets=7.5.1
-  - nodejs
+  - python=3.7.6
   - numpy
-  - mesalib # provides an open source implementation of OpenGL needed by 
+  - mesalib # provides an open source implementation of OpenGL needed by binder docker
   - opencv=4.2.0
   - pandas
-  - python=3.7.6
+  - matplotlib
   - scikit-learn
   - seaborn
   - tensorflow
+  - jupyter_contrib_nbextensions
+  - jupyterlab
+  - ipywidgets=7.5.1
   - widgetsnbextension
+  - nodejs
   - pip
   - pip:
     - jupyterlab-server

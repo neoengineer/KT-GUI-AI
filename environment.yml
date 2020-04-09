@@ -1,5 +1,9 @@
 name: python37
 channels:
+#  - conda-forge # removed this channel to eliminate an error running opencv on
+# a binder docker. The error was due to a dependency on openGL that was not supported
+# on the binderhub docker. Aparently, then conda version of opencv is different
+# and does not require opencv??
   - defaults
 dependencies:
   - numpy

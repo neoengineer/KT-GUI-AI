@@ -23,14 +23,15 @@ class TelloCamera(SingletonConfigurable):
 
         try:
             # self.cap = cv2.VideoCapture(self._gst_str(), cv2.CAP_GSTREAMER)
-            self.cap = cv2.VideoCapture('udp://0.0.0.0:11111',cv2.CAP_FFMPEG)
+            self.cap = cv2.VideoCapture('udp://0.0.0.0:11111?overrun_nonfatal=1',cv2.CAP_FFMPEG)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
 
-            re, image = self.cap.read()
+            re, frame = self.cap.read()
 
             if not re:
-                raise RuntimeError('Could not read image from video stream.')
+                raise RuntimeError('Could not read frame from video stream.')
 
-            self.value = image
+            self.value = cv2.resize(frame, (300,300),0,0,interpolation=cv2.INTER_AREA)
             self.start()
         except:
             self.stop()
@@ -40,11 +41,24 @@ class TelloCamera(SingletonConfigurable):
 
     def _capture_frames(self):
         while True:
-            re, image = self.cap.read()
+            
+            # flush 3 frames from the camera buffer
+            re = self.cap.grab()
+            re = self.cap.grab()
+            re = self.cap.grab()
+            
+            #while re:
+            #    re = self.cap.grab()
+            
+            # at this point the buffer should be empty, block until next frame
+            re, frame = self.cap.read()
+
             if re:
-                self.value = image
+                self.value = cv2.resize(frame, (300,300),0,0,interpolation=cv2.INTER_AREA)
+
             else:
                 break
+
                     
     def start(self):
 #        if not self.cap.isOpened():

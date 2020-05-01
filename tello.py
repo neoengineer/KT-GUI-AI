@@ -20,7 +20,7 @@ class Tello:
         :param tello_ip (str): Tello IP.
         :param tello_port (int): Tello port.
         """
-
+        self.is_flying = False
         self.abort_flag = False
 #        self.decoder = libh264decoder.H264Decoder()
         self.command_timeout = command_timeout
@@ -69,8 +69,8 @@ class Tello:
         """
         while True:
             try:
-                self.response, ip = self.socket.recvfrom(3000) # 1518 in other sample code...
-                #print(self.response)
+                self.response, ip = self.socket.recvfrom(1518) # 1518 in other sample code...
+                print(self.response)
             except socket.error as exc:
                 print ("Caught exception socket.error : %s" % exc)
 
@@ -296,7 +296,7 @@ class Tello:
         This method expects meters or feet. The Tello API expects distances
         from 20 to 500 centimeters.
 
-        Metric: .02 to 5 meters
+        Metric: .2 to 5 meters
         Imperial: .7 to 16.4 feet
 
         Args:

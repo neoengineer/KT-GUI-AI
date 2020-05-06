@@ -25,8 +25,7 @@ class StreamCamera(SingletonConfigurable):
         # TODO - tried to prevent buffering, but seems to have no effect, maybe limited by FFMPEG
         # https://stackoverflow.com/questions/16944024/udp-streaming-with-ffmpeg-overrun-nonfatal-option
         self._cap = cv2.VideoCapture('udp://0.0.0.0:11111?overrun_nonfatal=1',cv2.CAP_FFMPEG) 
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
-        #self.value = cv2.resize(frame, (300,300),0,0,interpolation=cv2.INTER_AREA)        
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)      
         
         atexit.register(self.stop)
 

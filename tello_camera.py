@@ -20,10 +20,15 @@ class TelloCamera(SingletonConfigurable):
     def __init__(self, *args, **kwargs):
         self.value = np.empty((self.height, self.width, 3), dtype=np.uint8)
         super(TelloCamera, self).__init__(*args, **kwargs) # Get an instance of the SingtonConfigurable and call its init
+        self.started = False
+        self.read_lock = threading.Lock()
 
         try:
             # self.cap = cv2.VideoCapture(self._gst_str(), cv2.CAP_GSTREAMER)
-            self.cap = cv2.VideoCapture('udp://0.0.0.0:11111?overrun_nonfatal=1',cv2.CAP_FFMPEG)
+            
+            # TODO - tried to prevent buffering, but seems to have no effect, maybe limited by FFMPEG
+            # https://stackoverflow.com/questions/16944024/udp-streaming-with-ffmpeg-overrun-nonfatal-option
+            self.cap = cv2.VideoCapture('udp://0.0.0.0:11111?overrun_nonfatal=1',cv2.CAP_FFMPEG) 
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
 
             re, frame = self.cap.read()
@@ -33,7 +38,8 @@ class TelloCamera(SingletonConfigurable):
 
             self.value = cv2.resize(frame, (300,300),0,0,interpolation=cv2.INTER_AREA)
             self.start()
-        except:
+        
+        except cv2.error:
             self.stop()
             raise RuntimeError('Error opening video stream.')
 
@@ -41,24 +47,16 @@ class TelloCamera(SingletonConfigurable):
 
     def _capture_frames(self):
         while True:
-            
-            # flush 3 frames from the camera buffer
-            re = self.cap.grab()
-            re = self.cap.grab()
-            re = self.cap.grab()
-            
-            #while re:
-            #    re = self.cap.grab()
-            
-            # at this point the buffer should be empty, block until next frame
-            re, frame = self.cap.read()
+            self._frame_available = self.cap.grab()
 
-            if re:
-                self.value = cv2.resize(frame, (300,300),0,0,interpolation=cv2.INTER_AREA)
-
-            else:
-                break
-
+    def get_frame(self):
+        if self._frame_available:
+            re, frame = self._cap.retrieve()
+            self._frame_available = False
+            return(frame)
+        else:
+            return(None)
+        
                     
     def start(self):
 #        if not self.cap.isOpened():
@@ -76,3 +74,44 @@ class TelloCamera(SingletonConfigurable):
     def restart(self):
         self.stop()
         self.start()
+        
+from threading import Thread, Lock
+import cv2
+
+class WebcamVideoStream :
+    def __init__(self, src = 0, width = 320, height = 240) :
+        self.stream = cv2.VideoCapture(src)
+        self.stream.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, width)
+        self.stream.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, height)
+        (self.grabbed, self.frame) = self.stream.read()
+        self.started = False
+        self.read_lock = Lock()
+
+    def start(self) :
+        if self.started :
+            print "already started!!"
+            return None
+        self.started = True
+        self.thread = Thread(target=self.update, args=())
+        self.thread.start()
+        return self
+
+    def update(self) :
+        while self.started :
+            (grabbed, frame) = self.stream.read()
+            self.read_lock.acquire()
+            self.grabbed, self.frame = grabbed, frame
+            self.read_lock.release()
+
+    def read(self) :
+        self.read_lock.acquire()
+        frame = self.frame.copy()
+        self.read_lock.release()
+        return frame
+
+    def stop(self) :
+        self.started = False
+        self.thread.join()
+
+    def __exit__(self, exc_type, exc_value, traceback) :
+        self.stream.release()

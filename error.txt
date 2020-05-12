@@ -1,0 +1,39 @@
+>> send cmd: command
+b"\xccp\x08\t\x88P\x10\x84\x03Q\xe9\x00'\x00\x00\x00\x03\x00\x00\x00*\x00\x00\x00\x00\x00\x00\x00BUILD Dec 21 2018 12:30:46\x00\x00\x00\x00\x00\x00F\xc3#\x00\x07\x00\x00\x00\x00\x03e\x01\x1b\x19\x12d\x11\x10\x11ded\x01\x12UU\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaaUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU\xd3\x07\x00\x00\xd2\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00DJI_LOG_V3\xed\xea\xc1\xd8\x9b\x15"
+b'ok'
+---------------------------------------------------------------------------
+UnicodeDecodeError                        Traceback (most recent call last)
+<ipython-input-12-fd87129f79f5> in <module>
+     11     ss_command_socket.value = True
+     12 
+---> 13     response_line.value = tello.send_command('command')
+     14     if response_line.value == 'ok':
+     15         ss_command_mode.value = True
+
+~/Projects/kipr-areial-dev/KT-GUI-AI-repo/tello.py in send_command(self, command)
+     99             response = 'No response'
+    100         else:
+--> 101             response = self.response.decode('utf-8')
+    102 
+    103         self.response = None
+
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xcc in position 0: invalid continuation byte
+
+(True,
+ array([[[ 39,  73,  80],
+         [ 38,  72,  79],
+         [ 40,  67,  75],
+         ...,
+         [ 19,  38,  39],
+         [  0,  39,  37],
+         [  0,  39,  37]],
+  
+        ...,
+ 
+        [[155, 176, 183],
+         [152, 173, 180],
+         [146, 167, 174],
+         ...,
+         [131, 157, 164],
+         [130, 155, 162],
+         [130, 155, 162]]], dtype=uint8))

@@ -7,157 +7,136 @@ import time
 
 TelloCmdPort = 8889      # Command and response
 TelloStatusPort = 8890   # Status data from the Tello 
-        
-class Tello(SingletonConfigurable):
-    """Wrapper class to interact with the Tello drone."""
 
-    communication_started = traitlets.Bool(default_value=False, read_only=True)
-    status_started = traitlets.Bool(default_value=False, read_only=True)
+Short_Command_Timeout = 0.5
+Long_Command_Timeout = 15.0
+
+class Tello(SingletonConfigurable):
+    """
+    Interface class for single Tello drone.
+    
+    Traitlets:
+        command_link_status (Bool): True - command rcvd, False otherwise
+        status_link_status (Bool): True - status rcvd, False otherwise
+        status_data (Unicode): Decoded UTF-8 Byte string of status data
+        response(Unicode): Command Tx response string
+    
+    Public Attributes:
+            is_flying (Bool): True if Takeoff successful, False if Land successful
+    """
+
+    command_link_status = traitlets.Bool(default_value=False, read_only=True)
+    status_link_status = traitlets.Bool(default_value=False, read_only=True)
     status_data = traitlets.Unicode(default_value=None, read_only=False)
     response = traitlets.Unicode(default_value=None, read_only=False)
     
-    def __init__(self, tello_ip, local_ip, command_timeout=15.0, *args, **kwargs):
+    def __init__(self, tello_ip, local_ip, *args, **kwargs):
         """
-        Binds to the local IP/port and puts the Tello into command mode.
+        Creates sockets for the Tello and local ip.
 
-        :param tello_ip (str): Tello IP.
-        :param local_ip (str): Local IP address to bind.
-        :param command_timeout (int|float): Number of seconds to wait for a response to a command.
+        Parameters:        
+            tello_ip (str): Tello IP.
+            local_ip (str): Local IP address to bind.
         """
         super(Tello, self).__init__(*args, **kwargs) # Get an instance of the SingtonConfigurable and call its init
         
-        self.set_trait('communication_started', False)
-        self.set_trait('status_started', False)
+        self.set_trait('command_link_status', False)
+        self.set_trait('status_link_status', False)
         self.status_data = ''
         self.response = '' 
         self.is_flying = False
-
+        
         self._last_height = 0
         self._tello_ip = tello_ip
-        self._command_response = ''
-        self._error_response = ''
+        #self._command_response = ''
+        #self._error_response = ''
         self._command_abort_flag = False
-        self._command_timeout = command_timeout
+        #self._command_timeout = command_timeout
 
-        # create a socket and thread for receiving command replies
+        # create a socket and thread for sending and receiving commands
         self._cmd_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # socket for sending / receiving commands
         self._cmd_socket.bind((local_ip, TelloCmdPort))
-        self._cmd_thread = threading.Thread(target=self._receive_cmd_replies)
-        self._cmd_thread.daemon = True
+        self._cmd_socket.setblocking(True)
         
         # create a socket and thread for receiving status stream
         self._status_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # socket for receiving status stream
         self._status_socket.bind((local_ip, TelloStatusPort))
         self._status_thread = threading.Thread(target=self._receive_status)
         self._status_thread.daemon = True
-
-        #self._heartbeat_thread = threading.Thread(target=self._maintain_heartbeat)
-        #self._heartbeat_thread.daemon = True
-        #self._heartbeat_thread.start()
+        self._status_thread.start()
 
 
     def __del__(self):
-        """Closes the local socket."""
+        """Closes sockets and stops threads."""
         self._cmd_socket.close()
         self._status_socket.close()
         # ToDo stop all threads
-        
-    def start_communication(self):
-        if not self.communication_started :
-            self.set_trait('communication_started', True)
-            self._cmd_thread.start() 
+
+    def send_command(self, command, timeout):
+        """
+        Send a command to the Tello and wait timeout seconds for each of up to two responses.
+
+        Parameters:
+            command (str): Command to send
+            timeout (float): Seconds to wait for a command response
+
+        Returns:
+            Bool: True if command executed, False if command or communication error
+            Sets self.response, self.command_link_status
             
-    def stop_communication(self) :
-        if self.communication_started:
-            self.set_trait('communication_started', False)
-            self._cmd_thread.join()  
-
-    def _receive_cmd_replies(self):
-        """ Private Member!!
-        Listen for command responses from the Tello.
-
-        Runs as a thread, sets self._command_response to whatever the Tello last returned.
+        Note: There are several possible responses from the Tello...
+            immediate 'ok'
+            immediate 'ok' + message
+            immediate 'error'
+            immediate 'error' + ok
+            immediate data (no 'ok', but trailing \r\n in some cases)
+            delayed 'ok' on task completion
+            nothing at all ( the rc command )
         """
-        while self.communication_started:
-            try:
-                response, ip = self._cmd_socket.recvfrom(1518) # 1518 in other sample code...
-                print(response)
-            except OSError as msg:
-                print ("Caught exception socket.error : %s" % repr(msg))
-            else:
-                if response == b'ok':
-                    self._command_response = response.decode(encoding='utf-8') # converts a byte array to a string               
-                else:
-                    self._error_response = response.decode(encoding='utf-8') # converts a byte array to a string
-                    
-    def send_command(self, command):
-        """
-        Send a command to the Tello and wait for a response.
 
-        :param command: Command to send.
-        :return (str): Response from Tello.
-
-        """
-        command_ack = False
+        rc = False
         
-        # trap for communication thread not started
-        if not self.communication_started:
-            self.response = 'WARNING: Communication service not running'
-            return command_ack
-            
         print (">> send cmd: {}".format(command))
-        self._command_abort_flag = False
-        timer = threading.Timer(self._command_timeout, self._set_abort_flag)
         try:
+            self._cmd_socket.settimeout(Short_Command_Timeout)
             self._cmd_socket.sendto(command.encode('utf-8'), (self._tello_ip, TelloCmdPort))
         
         except (socket.error, OSError) as msg:
-            self.response = 'WARNING: Socket Error!! ' + repr(msg)
+            self.set_trait('command_link_status', False)
+            self.response = 'WARNING: Error on send!! ' + repr(msg)
     
-        else:
-            timer.start()
-            while True:   # wait while there is no response             
-                if self._command_abort_flag:  # break if the command timed out with no response
-                    break
+        else: # command sent, so wait for a response
+            try:
+                self._cmd_socket.settimeout(timeout)
+                response, ip = self._cmd_socket.recvfrom(1518) # 1518 in other sample code...
+                print(response)
+ 
+            except OSError as msg:
+                self.set_trait('command_link_status', False)
+                self.response = 'WARNING: Error on recv!! ' + repr(msg)
+            
+            else: # received some response from Tello...
                 
-                temp_response = self._command_response
-                if bool(temp_response):
-                    break;
-            timer.cancel()
+                self.response = response.decode(encoding='utf-8') # converts a byte array to a string 
+                self.set_trait('command_link_status', True)
 
-            if bool(temp_response): # received a response and maybe an error messgae
-                self.response = temp_response + ' - ' + self._error_response
-                self._command_response = ''
-                self._error_response = ''
-                command_ack = True
-            else: # no command response received
-                self.response = 'WARNING: Timeout - No response!! ' + self._error_response
-                command_ack = False
+                if not response == b'error':
+                    rc = True # not an error, so return True            
+                
+                # listen for a possible second response string
+                try:
+                    self._cmd_socket.settimeout(Short_Command_Timeout)
+                    response, ip = self._cmd_socket.recvfrom(1518) # 1518 in other sample code...
+                    print(response)
+                    
+                except socket.timeout: pass # maybe no seconds response, so timeout exception is ok
+                except OSError as msg:
+                    self.response += 'WARNING: Error on recv!! ' + repr(msg)
             
-        return command_ack
-
-    def _maintain_heartbeat(self):
-        """  Private Member!!
-        Send a 'command' string every 5 seconds to keep Tello awake.
-
-        Runs as a thread.
-        """
-        while True:
-            self.set_trait('heartbeat_started', False)
-            response = self.send_command('command')
-            if response == 'ok':
-                self.set_trait('heartbeat_started', True)
-            time.sleep(5.0)
-
-    def start_status(self):
-        if not self.status_started :
-            self.set_trait('status_started', True)
-            self._status_thread.start() 
-            
-    def stop_status(self) :
-        if self.status_started:
-            self.set_trait('status_started', False)
-            self._status_thread.join()  
+                else: # received a second response from Tello, so append it
+                    self.response += ' ' + response.decode(encoding='utf-8') # converts a byte array to a string
+        
+        return rc
         
     def _receive_status(self):
         """  Private Member!!
@@ -165,35 +144,265 @@ class Tello(SingletonConfigurable):
 
         Runs as a thread, sets self.status to whatever the Tello last returned.
         """
-        while self.status_started:
+        while True:
             try:
                 response, ip = self._status_socket.recvfrom(1518) # 1518 in other sample code...
             except OSError as msg:
                 print ("Caught exception socket.error : %s" % repr(msg))
+                self.set_trait('status_link_status', False)
             else:
-                self.status_data = response.decode(encoding='utf-8') # converts a byte array to a string      
+                self.status_data = response.decode(encoding='utf-8') # converts a byte array to a string 
+                self.set_trait('status_link_status', True)
 
-                
-    def _set_abort_flag(self):
-        """ Private Member!
-        Sets self._abort_flag to True.
-
-        Used by the timer in Tello.send_command() to indicate to that a response
-        timeout has occurred.
+    def command(self):
         """
-        self._command_abort_flag = True
+        Initiates command mode.
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('command', Short_Command_Timeout)
+
+    def rc(self, a=0, b=0, c=0, d=0):
+        """
+        Sends the special rc command to set the velocity vectors for the Tello.
+
+        Parameters:
+            a (int): left/right (-100 to 100)
+            b (int): forward/backward (-100 to 100)
+            c (int): up/down (-100 to 100)
+            d (int): yaw (-100 to 100)
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response to empty string or error
+            
+        Note: The tello DOES NOT return any status after receiving this command. If the 
+        Tello is not in flight when the command is received, then it will execute the 
+        rc command immedialy after the next takeoff command is received.
+        """
+        if not self.is_flying:
+            return (False)
+        
+        rc = True
+        command = 'rc %s %s %s %s' % (a, b, c, d)
+        
+        print (">> send cmd: {}".format(command))
+        try:
+            self._cmd_socket.settimeout(Short_Command_Timeout)
+            self._cmd_socket.sendto(command.encode('utf-8'), (self._tello_ip, TelloCmdPort))
+        
+        except (socket.error, OSError) as msg:
+            self.set_trait('command_link_status', False)
+            self.response = 'WARNING: Error on send!! ' + repr(msg)
+            rc = False
+
+        return rc
 
     def takeoff(self):
         """
-        Initiates take-off.
+        Initiates takeoff.
 
         Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
+            Bool: True if Takeoff successful, False if error
+            Sets self.response
         """
+        rc = False
+        if not self.is_flying:
+            rc = self.send_command('takeoff', Long_Command_Timeout)
+            if rc:
+                self.is_flying = True
+        
+        else:
+            self.response = "WARNING: Tello already flying!"
+                    
+        return rc
 
-        return self.send_command('takeoff')
+    def land(self):
+        """
+        Initiates landing.
 
+        Returns:
+            Bool: True if Landing successful, False if error
+            Sets self.response
+        """
+        rc = False
+        if self.is_flying:
+            rc = self.send_command('land', Long_Command_Timeout)
+            if rc:
+                self.is_flying = False
+        
+        else:
+            self.response = "WARNING: Tello not flying!"
+                    
+        return rc
+
+    def streamon(self):
+        """
+        Initiates video streaming mode.
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('streamon', Short_Command_Timeout)
+
+    def streamoff(self):
+        """
+        Disables video streaming mode.
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('streamoff', Short_Command_Timeout)
+
+    def emergency(self):
+        """
+        Immediately stops all motors.
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('emergency', Short_Command_Timeout)
+
+    def stop(self):
+        """
+        Immediately stops movement and hovers Tello.
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('stop', Short_Command_Timeout)
+
+
+    def up(self, x):
+        """
+        Accend to "x" cm.
+
+        Parameters:
+            x (int): 20 to 500 distance to move in cm
+            
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('up %s' % x, Long_Command_Timeout)
+    
+    def down(self, x):
+        """
+        desend to "x" cm.
+
+        Parameters:
+            x (int): 20 to 500 distance to move in cm
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('down %s' % x, Long_Command_Timeout)
+    
+    def left(self, x):
+        """
+        Fly left for "x" cm.
+
+        Parameters:
+            x (int): 20 to 500 distance to move in cm
+            
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('left %s' % x, Long_Command_Timeout)
+    
+    def right(self, x):
+        """
+        Fly right for "x" cm.
+
+        Parameters:
+            x (int): 20 to 500 distance to move in cm
+            
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('right %s' % x, Long_Command_Timeout)
+    
+    def forward(self, x):
+        """
+        Fly forward "x" cm.
+
+        Parameters:
+            x (int): 20 to 500 distance to move in cm
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('forward %s' % x, Long_Command_Timeout)
+    
+    def back(self, x):
+        """
+        Fly backward "x" cm.
+
+        Parameters:
+            x (int): 20 to 500 distance to move in cm
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('back %s' % x, Long_Command_Timeout)
+    
+    def cw(self, x):
+        """
+        Rotate "x" degrees clockwise.
+
+        Parameters:
+            x (int): 1 to 360 degrees to rotate
+            
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('cw %s' % x, Long_Command_Timeout)
+    
+    def ccw(self, x):
+        """
+        Rotate "x" degrees counterclockwise.
+
+        Parameters:
+            x (int): 1 to 360 degrees to rotate
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+        """
+        return self.send_command('ccw %s' % x, Long_Command_Timeout)
+        
+    def go(self, x, y, z, speed):
+        """
+        Fly to x y z at speed(cm/s).
+
+        Parameters:
+            x (int): -500 to 500 distance to move in cm
+            y (int): -500 to 500 distance to move in cm
+            z (int): -500 to 500 distance to move in cm
+            speed (int): 10 to 100 distance to move in cm
+
+        Returns:
+            Bool: True if successful, False if error
+            Sets self.response
+
+        Note: “x”, “y”, and “z” values can’t be set between -20 – 20 simultaneously.
+        """
+        return self.send_command('go %s %s %s %s' % (x, y, z, speed), Long_Command_Timeout)
+    
+    
+    
+    
     def set_speed(self, speed):
         """
         Sets speed.
@@ -217,46 +426,6 @@ class Tello(SingletonConfigurable):
 
         return self.send_command('speed %s' % speed)
 
-    def rotate_cw(self, degrees):
-        """
-        Rotates clockwise.
-
-        Args:
-            degrees (int): Degrees to rotate, 1 to 360.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        return self.send_command('cw %s' % degrees)
-
-    def rotate_ccw(self, degrees):
-        """
-        Rotates counter-clockwise.
-
-        Args:
-            degrees (int): Degrees to rotate, 1 to 360.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-        return self.send_command('ccw %s' % degrees)
-
-    def flip(self, direction):
-        """
-        Flips.
-
-        Args:
-            direction (str): Direction to flip, 'l', 'r', 'f', 'b'.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        return self.send_command('flip %s' % direction)
 
     def get_response(self):
         """
@@ -266,7 +435,7 @@ class Tello(SingletonConfigurable):
             int: response of tello.
 
         """
-        response = self._response
+        response = self.response
         return response
 
     def get_height(self):
@@ -342,120 +511,3 @@ class Tello(SingletonConfigurable):
             pass
 
         return speed
-
-    def land(self):
-        """Initiates landing.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        return self.send_command('land')
-
-    def move(self, direction, distance):
-        """Moves in a direction for a distance.
-
-        This method expects meters or feet. The Tello API expects distances
-        from 20 to 500 centimeters.
-
-        Metric: .2 to 5 meters
-        Imperial: .7 to 16.4 feet
-
-        Args:
-            direction (str): Direction to move, 'forward', 'back', 'right' or 'left'.
-            distance (int|float): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        distance = float(distance)
-        #distance = int(round(distance * 100))
-
-        return self.send_command('%s %s' % (direction, distance))
-
-    def move_backward(self, distance):
-        """Moves backward for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        return self.move('back', distance)
-
-    def move_down(self, distance):
-        """Moves down for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        return self.move('down', distance)
-
-    def move_forward(self, distance):
-        """Moves forward for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-        return self.move('forward', distance)
-
-    def move_left(self, distance):
-        """Moves left for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-        return self.move('left', distance)
-
-    def move_right(self, distance):
-        """Moves right for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        """
-        return self.move('right', distance)
-
-    def move_up(self, distance):
-        """Moves up for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        return self.move('up', distance)
